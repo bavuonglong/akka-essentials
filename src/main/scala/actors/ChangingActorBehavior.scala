@@ -48,34 +48,37 @@ object ChangingActorBehavior extends App {
   case class VoteStatusReply(candidate: Option[String])
   class Citizen extends Actor {
 
-    var candidate: Option[String] = None
-
     override def receive: Receive = {
-      case Vote(candidate) => this.candidate = Some(candidate)
-      case VoteStatusRequest => sender() ! VoteStatusReply(this.candidate)
+      case Vote(candidate) => context.become(voted(candidate))
+      case VoteStatusRequest => sender() ! VoteStatusReply(None)
+    }
+
+    def voted(candidate: String): Receive = {
+      case VoteStatusRequest => sender() ! VoteStatusReply(Some(candidate))
     }
   }
 
   case class AggregateVotes(citizens: Set[ActorRef])
   class VoteAggregator extends Actor {
-    var stillWaiting: Set[ActorRef] = Set()
-    var currentStats: Map[String, Int] = Map()
+    override def receive: Receive = awaitingCommand
 
-    override def receive: Receive = {
-      case AggregateVotes(citizens) =>
-        stillWaiting = citizens
-        citizens.foreach(citizenRef => citizenRef ! VoteStatusRequest)
+    def awaitingStatuses(stillWaiting: Set[ActorRef], currentStats: Map[String, Int]): Receive = {
       case VoteStatusReply(None) => sender() ! VoteStatusRequest
       case VoteStatusReply(Some(candidate)) =>
         val newStillWaiting = stillWaiting - sender()
         val currentVoteOfCandidate = currentStats.getOrElse(candidate, 0)
-        currentStats = currentStats + (candidate -> (currentVoteOfCandidate + 1))
+        val newStats = currentStats + (candidate -> (currentVoteOfCandidate + 1))
         if (newStillWaiting.isEmpty) {
-          println(s"[aggregator] poll stats: $currentStats")
+          println(s"[aggregator] poll stats: $newStats")
         } else{
-          stillWaiting = newStillWaiting
+          context.become(awaitingStatuses(newStillWaiting, newStats))
         }
+    }
 
+    def awaitingCommand: Receive = {
+      case AggregateVotes(citizens) =>
+        citizens.foreach(citizenRef => citizenRef ! VoteStatusRequest)
+        context.become(awaitingStatuses(citizens, Map()))
     }
   }
 
