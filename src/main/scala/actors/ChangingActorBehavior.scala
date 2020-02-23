@@ -1,8 +1,61 @@
 package actors
 
+import actors.ChangingActorBehavior.Mom.MomStart
 import akka.actor.{Actor, ActorRef, ActorSystem, Props}
 
 object ChangingActorBehavior extends App {
+
+  val system = ActorSystem("actorSystem")
+
+  object FussyKid {
+    case object KidAccept
+    case object KidReject
+    val HAPPY = "happy"
+    val SAD = "sad"
+  }
+
+  class FussyKid extends Actor {
+    import FussyKid._
+    import Mom._
+
+    var status = HAPPY
+
+    override def receive: Receive = {
+      case Food(VEGETABLE) => status = SAD
+      case Food(CHOCOLATE) => status = HAPPY
+      case Ask(_) => {
+        if (status == HAPPY) sender() ! KidAccept
+        else sender() ! KidReject
+      }
+    }
+  }
+
+  object Mom {
+    case class MomStart(kidRef: ActorRef)
+    case class Food(name: String)
+    case class Ask(message: String)
+    val CHOCOLATE = "chocolate"
+    val VEGETABLE = "vegetable"
+  }
+
+  class Mom extends Actor {
+    import FussyKid._
+    import Mom._
+
+    override def receive: Receive = {
+      case MomStart(kidRef) =>
+        kidRef ! Food(VEGETABLE)
+        kidRef ! Ask("Do you want to play")
+      case KidAccept => println("Yay, my kid is happy")
+      case KidReject => println("My kid is sad, but at least he's healthy")
+    }
+  }
+
+  val fussyKid = system.actorOf(Props[FussyKid])
+  val mom = system.actorOf(Props[Mom])
+
+  mom ! MomStart(fussyKid)
+
 
   /**
     * Exercises: create the Counter Actor with context.become and no mutable state
@@ -32,7 +85,6 @@ object ChangingActorBehavior extends App {
   }
 
   import Counter._
-  val system = ActorSystem("actorSystem")
   val counter = system.actorOf(Props[Counter], "myCounter")
 
   (1 to 5).foreach(_ => counter ! Increment)
